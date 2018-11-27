@@ -49,12 +49,12 @@ cycleList :: [a] -> Stream a
 cycleList as = let as' = foldr (:$:) as' as in as'
 
 drop :: Int -> Stream a -> Stream a
-drop 0 as         = as
-drop n (_ :$: as) = drop (n - 1) as
+drop n (_ :$: as) | n > 0 = drop (n - 1) as
+drop _ as         = as
 
 take :: Int -> Stream a -> [a]
-take 0 _          = []
-take n (a :$: as) = a : take (n - 1) as
+take n (a :$: as) | n > 0 = a : take (n - 1) as
+take _ _          = []
 
 unfold :: (a -> (b, a)) -> a -> Stream b
 unfold f a = let (b, a') = f a in b :$: unfold f a'

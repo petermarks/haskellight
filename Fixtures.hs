@@ -178,6 +178,9 @@ imFull = IMDimmer 255
 
 type Fixture a = a -> Builder
 
+rgbPixel :: Fixture RGB
+rgbPixel (RGB r g b) = word8 r <> word8 g <> word8 b
+
 rbgPixel :: Fixture RGB
 rbgPixel (RGB r g b) = word8 r <> word8 b <> word8 g
 

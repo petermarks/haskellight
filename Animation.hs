@@ -8,6 +8,7 @@ module Animation (
   mkAnimation,
   while,
   when,
+  step,
   start,
   stop,
   set,
@@ -24,8 +25,6 @@ import Data.IORef
 data Animation a b 
   = Animation (a -> (Animation a b, b))
   | Stateless (a -> b)
-
-data Animator a b = Animator (IORef (Animation a b)) QSem 
 
 instance Functor (Animation a) where
   fmap f (Stateless a) = Stateless $ a >>> f
@@ -68,8 +67,9 @@ when p t f = Animation $ \i -> let (p', c) = step i p in if c
 
 step :: a -> Animation a b -> (Animation a b, b)
 step i aa@(Stateless a) = (aa, a i)
-step i (Animation a)    = a i 
+step i (Animation a)    = a i
 
+data Animator a b = Animator (IORef (Animation a b)) QSem
 type Runner a b = (a -> IO b) -> IO () -> IO ()
 
 start :: Animation a b -> Runner a b -> IO (Animator a b)

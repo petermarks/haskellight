@@ -16,7 +16,7 @@ myRig :: Fixture Frame
 myRig = rig $ Group 40 rbgPixel :&: Group 4 ledj252 :&: Group 4 ledj7q5 :&: Group 2 imove7s :&: INil
 
 -- TODO: there must be a neater way to do this
-scene 
+scene
   :: GroupAnimation RGB
   -> GroupAnimation RGBW
   -> GroupAnimation RGBA
@@ -38,8 +38,8 @@ blackout = scene bo bo bo home
 startShow :: IO (Animator Context Frame)
 startShow = start blackout $ runner myRig
 
-testShow :: IO (Animator Context Frame)
-testShow = start blackout $ testRunner myRig
+dummyShow :: IO (Animator Context Frame)
+dummyShow = start blackout $ dummyRunner myRig
 
 
 
@@ -91,7 +91,7 @@ imWide :: Word8 -> Word8 -> IMPos
 imWide p t = IMPos (shiftR p 2 + 40) (shiftR t 2 + 166)
 
 home :: GroupAnimation IMove7s
-home = pure $ pure $ IMove7s imHome imClosed imNone imWhite imStatic imOff 
+home = pure $ pure $ IMove7s imHome imClosed imNone imWhite imStatic imOff
 
 
 
@@ -142,7 +142,7 @@ randomCycle s variations cs = mkRandom $ (speed 1 >>>) . fadeColors s . P.take v
     l = length cs
 
 purpleWhite :: (Color c) => GroupAnimation c
-purpleWhite = randomCycle 50 30 [white, purple, purple, purple]  
+purpleWhite = randomCycle 50 30 [white, purple, purple, purple]
 
 
 
@@ -189,11 +189,14 @@ break p b c = while p ((b &&& c) >>^ override) c
     override (a :&: b :&: c :&: _ :&: INil, _ :&: _ :&: _ :&: d :&: INil) =
       a :&: b :&: c :&: blank d :&: INil
 
+breakBeats :: Int -> Scene -> Scene -> Scene
+breakBeats beats = break $ beat >>> count >>^ (< beats)
+
 strobeBreak :: Int -> Scene -> Scene
-strobeBreak beats = break (beat >>> count >>^ (< beats)) (scene bo (strobe 1) (strobe 1) home)
+strobeBreak beats = breakBeats beats (scene bo (strobe 1) (strobe 1) home)
 
 rainbowBreak :: Int -> Scene -> Scene
-rainbowBreak beats = break (beat >>> count >>^ (< beats)) (scene bo (sequenceRGB 1) (sequenceRGB 1) home)
+rainbowBreak beats = breakBeats beats (scene bo (sequenceRGB 1) (sequenceRGB 1) home)
 
 
 

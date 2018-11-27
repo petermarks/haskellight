@@ -1,4 +1,4 @@
-{-# language TupleSections #-}
+{-# language TupleSections, Arrows #-}
 
 module Haskellight (
   module Animation,
@@ -7,11 +7,15 @@ module Haskellight (
   module Control.Arrow,
   Word8,
   Context(..),
+  StreamAnimation,
+  RigAnimation,
   GroupAnimation,
+  Stepper,
   runner,
-  testRunner,
+  dummyRunner,
   chase,
   chaseEach,
+  chaseMulti,
   sequence,
   fadeColors,
   fade,
@@ -25,13 +29,14 @@ module Haskellight (
   rev,
   alternate,
   zigzag,
+  pingPong,
   cue,
   sin,
   halfsin,
   pallette
 ) where
 
-import Prelude hiding (id, sequence, sin)
+import Prelude hiding (id, sequence, sin, take, drop)
 import qualified Prelude as P
 import Data.Bits
 import Data.ByteString.Builder
@@ -47,14 +52,16 @@ import System.Random
 
 import Animation
 import Fixtures
-import Generic hiding (take, drop)
-import qualified Generic as G
+import Generic
 import Midi
-import UDMX
+import qualified UDMX as U
+
+type StreamAnimation c a = Animation c (Stream a)
+type RigAnimation c as = Animation c (IVect Stream as)
 
 data Context = Context {cFrame :: !Int, cBeat :: !Int, cVU :: !Word8, cPlay :: !Bool}
-type GroupAnimation a = Animation Context (Stream a)
-type Stepper a = Animation Int (Stream a)
+type GroupAnimation a = StreamAnimation Context a
+type Stepper a = StreamAnimation Int a
 
 mkMidiHandler :: (Context -> IO ()) -> IO ([Word8] -> IO ())
 mkMidiHandler h = do
@@ -77,20 +84,20 @@ mkMidiHandler h = do
       _ -> return ()
 
 runner :: Fixture frame -> Runner Context frame
-runner fixture sequencer waitForStop = withUDMX $ \dev -> do
+runner fixture sequencer waitForStop = U.withUDMX $ \dev -> do
   mh <- mkMidiHandler $ \ctx -> do
     frame <- sequencer ctx
-    UDMX.set (toStrict $ toLazyByteString $ fixture frame) dev
+    U.set (toStrict $ toLazyByteString $ fixture frame) dev
   listenMidi mh waitForStop
   putStrLn "Stopped"
 
-testRunner :: Fixture frame -> Runner Context frame
-testRunner fixture sequencer waitForStop = withUDMX $ \dev -> do
+dummyRunner :: Fixture frame -> Runner Context frame
+dummyRunner fixture sequencer waitForStop = U.withUDMX $ \dev -> do
   stop <- newIORef False
   let
     go i = do
       frame <- sequencer $ Context i (shiftR i 4) (fromIntegral i) (i .&. 0xff == 0)
-      UDMX.set (toStrict $ toLazyByteString $ fixture frame) dev
+      U.set (toStrict $ toLazyByteString $ fixture frame) dev
       threadDelay 40000
       s <- readIORef stop
       M.unless s $ go (i + 1)
@@ -105,16 +112,23 @@ testRunner fixture sequencer waitForStop = withUDMX $ \dev -> do
 -- Steppers
 
 chase :: [a] -> Stepper a
-chase as = arr $ (`G.drop` as') . (`mod` l)
+chase as = arr $ (`drop` as') . (`subtract` l) . (`mod` l)
   where
     l = length as
     as' = cycleList as
 
 chaseEach :: (Monoid a) => [a] -> Stepper a
-chaseEach as = arr $ G.unfold (\(i, a :$: as) -> (if i `mod` l == 0 then a else mempty, (succ i, as))) .  (, as')
+chaseEach as = arr $ unfold (\(i, a :$: as) -> (if i `mod` l == 0 then a else mempty, (succ i, as))) .  (, as')
   where
     l = length as
     as' = cycleList as
+
+chaseMulti :: [(Int, a)] -> Stepper a
+chaseMulti = chase . expand
+  where
+    expand [] = []
+    expand ((n, a) : as) | n > 0 = a : expand ((n - 1, a) : as)
+    expand (_ : as) = expand as 
 
 sequence :: [a] -> Stepper a
 sequence as = arr $ pure . (as !!) . (`mod` l)
@@ -136,7 +150,7 @@ fade :: (Color c) => Int -> [c] -> Stepper c
 fade speed as = fadeColors speed as >>^ pure
 
 grow :: a -> a -> Stepper a
-grow fg bg = arr $ \i -> G.unfold (\ n -> (if n < i then fg else bg, n + 1)) 0
+grow fg bg = arr $ \i -> unfold (\ n -> (if n < i then fg else bg, n + 1)) 0
 
 
 
@@ -148,9 +162,6 @@ speed n = arr $ (`div` n) . cFrame
 
 beat :: Animation Context Int
 beat = arr cBeat
-
-frame :: Animation Context Int
-frame = arr cFrame
 
 vu :: Int -> Int -> Int -> Animation Context Int
 vu low high range = arr $ min range . (`div` (high - low)) . (* range). max 0 . subtract low . fromIntegral . cVU
@@ -178,13 +189,19 @@ randomMap size = mkRandom $ (\vect -> pure $ (vect V.!) . (`mod` size)) . V.from
 -- Animation Combinators
 
 rev :: Int -> Animation (Stream a) (Stream a)
-rev n = arr $ cycleList . reverse . G.take n
+rev n = arr $ cycleList . reverse . take n
 
 alternate :: Int -> Int -> Animation (Stream a, Stream a) (Stream a)
-alternate n1 n2 = arr $ \(o1, o2) -> cycleList $ G.take n1 o1 ++ G.take n2 o2
+alternate n1 n2 = arr $ \(o1, o2) -> cycleList $ take n1 o1 ++ take n2 o2
 
 zigzag :: Int -> Stepper a -> Stepper a
 zigzag n a = a >>> (id &&& rev n) >>> alternate n n
+
+pingPong :: Int -> Stepper a -> Stepper a
+pingPong n a = proc i -> do
+  f <- a -< i
+  r <- rev n -< f
+  id -< if i `div` n `mod` 2 == 0 then f else r
 
 
 
